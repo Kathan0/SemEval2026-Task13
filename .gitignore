@@ -1,0 +1,50 @@
+# Large model weights (StarCoder and downloaded models)
+# Ignore model weights but keep Python code in src/models/
+models/starcoder2-3b/
+models/models--*/
+*.bin
+*.safetensors
+*.pt
+*.pth
+*.ckpt
+
+# Cache and temporary files
+.cache/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Large archives
+*.zip
+*.tar.gz
+*.tar
+*.rar
+
+# Colab files
+Colab*
+*colab*
+
+# Data and checkpoints
+data/
+checkpoints/
+logs/
+runs/
+
+# Jupyter notebook checkpoints
+.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+venv/
+env/
+*.egg-info/

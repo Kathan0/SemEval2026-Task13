@@ -1,0 +1,210 @@
+# Task B: Multi-Class Authorship Detection Configuration
+
+common:
+  seed: 42
+  project_name: "semeval2026-task-b"
+  experiment_name: "authorship-cascade-enhanced"
+  device: "cuda"
+  mixed_precision: true
+  
+paths:
+  data_dir: "data/task_b"  # HuggingFace dataset location for Colab
+  checkpoint_dir: "checkpoints/task_b"
+  log_dir: "logs/task_b"
+  cache_dir: ".cache/task_b"
+
+data:
+  max_length: 512
+  train_file: "train.parquet"  # Parquet file in data_dir
+  val_file: "validation.parquet"  # Parquet file in data_dir
+  test_file: "test.parquet"  # Parquet file in data_dir (if available)
+  max_samples: 100000  # Limit dataset size for Colab (set to null for full dataset)
+  
+  # Class mapping
+  num_classes: 11
+  classes:
+    - "human"           # 0
+    - "deepseek"        # 1
+    - "qwen"            # 2
+    - "01-ai"           # 3
+    - "bigcode"         # 4
+    - "gemma"           # 5
+    - "phi"             # 6
+    - "llama"           # 7
+    - "granite"         # 8
+    - "mistral"         # 9
+    - "gpt"             # 10
+  
+  # Feature extraction
+  extract_ast: true
+  extract_patterns: true
+  extract_perplexity: true
+  extract_generator_signatures: true  # Key for Task B!
+  
+  # Enhanced features for authorship
+  num_ast_features: 33
+  num_pattern_features: 57
+  num_perplexity_features: 8
+  num_stylometric_features: 12
+  num_generator_signatures: 35  # Per-generator patterns
+  # Total: 145 features
+  
+  # Perplexity models (more for better discrimination)
+  perplexity_models:
+    - "Qwen/Qwen2.5-Coder-1.5B-Instruct"
+    - "bigcode/tiny_starcoder_py"
+    - "deepseek-ai/deepseek-coder-1.3b-base"  # Add DeepSeek
+  
+  # Augmentation (less aggressive for authorship)
+  use_augmentation: false  # Can hurt authorship signals
+  
+  # Class balancing
+  use_class_weights: true
+  oversample_minority: true
+  oversample_threshold: 5000
+
+model:
+  base_model: "bigcode/starcoder2-3b"
+  
+  # Cascade strategy
+  use_cascade: true
+  
+  # Stage 1: Binary (Human vs AI)
+  binary:
+    num_labels: 2
+    hidden_size: 768
+    use_attention_pooling: true
+    use_multi_scale: true
+    multi_scale_layers: [6, 9, 12]
+    feature_fusion_dim: 256
+    fusion_dropout: 0.3
+  
+  # Stage 2: Family classification (which AI family)
+  families:
+    num_labels: 10  # Exclude human
+    hidden_size: 768
+    use_attention_pooling: true
+    use_multi_scale: true
+    multi_scale_layers: [6, 9, 12]
+    feature_fusion_dim: 256
+    fusion_dropout: 0.3
+    
+    # Enhanced for family discrimination
+    use_family_embeddings: true
+    family_embedding_dim: 64
+  
+  # Optimization
+  use_8bit_quantization: true
+  gradient_checkpointing: true
+  
+  # Regularization
+  hidden_dropout: 0.3    # Higher for harder task
+  attention_dropout: 0.3
+
+training:
+  # Two-stage training
+  stage: "binary"  # or "families"
+  
+  # Binary stage settings
+  binary_training:
+    batch_size: 12
+    gradient_accumulation_steps: 4
+    num_epochs: 10
+    learning_rate: 2e-5
+    weight_decay: 0.01
+    warmup_ratio: 0.1
+    
+    # Loss
+    use_focal_loss: true
+    focal_gamma: 2.0
+    label_smoothing: 0.1
+    
+    # Contrastive
+    use_supcon: true
+    supcon_weight: 0.2
+    supcon_temperature: 0.07
+  
+  # Families stage settings
+  families_training:
+    batch_size: 16
+    gradient_accumulation_steps: 2
+    num_epochs: 20
+    learning_rate: 1e-5
+    weight_decay: 0.02
+    warmup_ratio: 0.15
+    
+    # Loss (strong class imbalance)
+    use_focal_loss: true
+    focal_gamma: 3.0  # Higher for harder negatives
+    label_smoothing: 0.15
+    
+    # Contrastive (critical for family separation)
+    use_supcon: true
+    supcon_weight: 0.5  # Higher weight
+    supcon_temperature: 0.05  # Tighter clustering
+    
+    # Meta-learning for few-shot generalization
+    use_meta_learning: true
+    meta_learning_strategy: "prototypical"  # or "maml"
+    support_set_size: 32
+    query_set_size: 16
+  
+  # Shared settings
+  max_grad_norm: 1.0
+  scheduler_type: "cosine"
+  num_cycles: 0.5
+  early_stopping_patience: 6
+  monitor_metric: "val_f1_macro"
+  save_strategy: "best"
+  save_total_limit: 3
+  logging_steps: 50
+  eval_steps: 500
+  save_steps: 500
+
+evaluation:
+  batch_size: 32
+  metrics:
+    - "accuracy"
+    - "f1_macro"
+    - "f1_weighted"
+    - "precision_macro"
+    - "recall_macro"
+    - "confusion_matrix"
+  
+  # Per-class metrics
+  per_class_metrics: true
+  
+  # OOD evaluation
+  eval_ood_detection: true
+  ood_methods:
+    - "mahalanobis"
+    - "max_softmax_probability"
+    - "energy_score"
+
+inference:
+  batch_size: 64
+  
+  # Cascade inference
+  use_cascade: true
+  binary_threshold: 0.5  # If < 0.5 (AI), go to families classifier
+  
+  # OOD detection for unseen generators
+  use_ood_detection: true
+  ood_threshold: 0.75
+  ood_fallback: "family_level"  # Predict family only, not specific model
+  
+  # Ensemble (optional)
+  use_ensemble: false
+  ensemble_weights: [0.4, 0.3, 0.3]  # Binary, Families, Combined
+
+ood_detection:
+  # For unseen generator detection
+  method: "mahalanobis"
+  
+  # Mahalanobis parameters
+  use_class_conditional: true
+  regularization: 1e-4
+  
+  # Calibration
+  calibration_method: "temperature_scaling"
+  calibration_data: "val"

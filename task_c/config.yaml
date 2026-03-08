@@ -1,0 +1,248 @@
+# Task C: Hybrid Code Detection Configuration
+
+common:
+  seed: 42
+  project_name: "semeval2026-task-c"
+  experiment_name: "hybrid-detection-staged"
+  device: "cuda"
+  mixed_precision: true
+  
+paths:
+  data_dir: "data/task_c"  # HuggingFace dataset location for Colab
+  checkpoint_dir: "checkpoints/task_c"
+  log_dir: "logs/task_c"
+  cache_dir: ".cache/task_c"
+
+data:
+  max_length: 512
+  train_file: "train.parquet"  # Parquet file in data_dir
+  val_file: "validation.parquet"  # Parquet file in data_dir
+  test_file: "test.parquet"  # Parquet file in data_dir (if available)
+  max_samples: 100000  # Limit dataset size for Colab (set to null for full dataset)
+  
+  # Class mapping
+  num_classes: 4
+  classes:
+    - "human"         # 0: Fully human-written
+    - "machine"       # 1: Fully AI-generated
+    - "hybrid"        # 2: Human-AI collaboration
+    - "adversarial"   # 3: AI trying to mimic human
+  
+  # Feature extraction (enhanced for adversarial detection)
+  extract_ast: true
+  extract_patterns: true
+  extract_perplexity: true
+  extract_adversarial_features: true  # Special for Task C!
+  
+  num_ast_features: 33
+  num_pattern_features: 57
+  num_perplexity_features: 8
+  num_stylometric_features: 12
+  num_adversarial_features: 25  # Obfuscation, consistency, etc.
+  # Total: 135 features
+  
+  # Perplexity analysis (critical for hybrid/adversarial)
+  perplexity_models:
+    - "Qwen/Qwen2.5-Coder-1.5B-Instruct"
+    - "bigcode/tiny_starcoder_py"
+  
+  # Enhanced perplexity for hybrid detection
+  use_windowed_perplexity: true  # Detect mixed sections
+  perplexity_window_size: 128
+  perplexity_stride: 64
+  
+  # Augmentation
+  use_augmentation: true
+  augmentation_prob: 0.2
+  
+  # Class balancing (strong imbalance)
+  use_class_weights: true
+  class_weights: [0.3, 0.3, 0.2, 0.2]  # balanced → adversarial harder
+
+model:
+  base_model: "bigcode/starcoder2-3b"
+  
+  # Staged learning strategy
+  use_staged_learning: true
+  
+  # Stage 1: Binary (Human vs Non-Human)
+  binary:
+    num_labels: 2
+    hidden_size: 768
+    use_attention_pooling: true
+    use_multi_scale: true
+    multi_scale_layers: [6, 9, 12]
+    feature_fusion_dim: 256
+    fusion_dropout: 0.3
+  
+  # Stage 2: Fine-grained (Machine vs Hybrid vs Adversarial)
+  fine_grained:
+    num_labels: 4  # All classes
+    hidden_size: 768
+    use_attention_pooling: true
+    use_multi_scale: true
+    multi_scale_layers: [6, 9, 12]
+    feature_fusion_dim: 320  # Slightly larger
+    fusion_dropout: 0.35
+    
+    # Special components for hybrid/adversarial
+    use_adversarial_head: true
+    adversarial_head_dim: 128
+    
+    # Attention over code sections (for hybrid detection)
+    use_section_attention: true
+    num_sections: 8
+  
+  # Optimization
+  use_8bit_quantization: true
+  gradient_checkpointing: true
+  
+  # Regularization
+  hidden_dropout: 0.3
+  attention_dropout: 0.3
+
+training:
+  # Two-stage curriculum
+  stage: "binary"  # or "fine_grained"
+  
+  # Stage 1: Binary classification
+  binary_training:
+    batch_size: 12
+    gradient_accumulation_steps: 4
+    num_epochs: 8
+    learning_rate: 2e-5
+    weight_decay: 0.01
+    warmup_ratio: 0.1
+    
+    # Loss
+    use_focal_loss: true
+    focal_gamma: 2.0
+    class_weights: [0.4, 0.6]  # Human, Non-Human
+    label_smoothing: 0.1
+    
+    # Contrastive
+    use_supcon: true
+    supcon_weight: 0.3
+    supcon_temperature: 0.07
+  
+  # Stage 2: Fine-grained classification
+  fine_grained_training:
+    batch_size: 10
+    gradient_accumulation_steps: 5
+    num_epochs: 20
+    learning_rate: 1e-5
+    weight_decay: 0.02
+    warmup_ratio: 0.15
+    
+    # Loss (strong focus on hard classes)
+    use_focal_loss: true
+    focal_gamma: 3.5  # Very high for adversarial
+    dynamic_class_weights: true  # Adjust during training
+    label_smoothing: 0.15
+    
+    # Contrastive (critical for adversarial separation)
+    use_supcon: true
+    supcon_weight: 0.6  # Very high
+    supcon_temperature: 0.04  # Very tight
+    
+    # Curriculum learning (easy → hard)
+    use_curriculum: true
+    curriculum_strategy: "sample_difficulty"
+    curriculum_epochs: 5  # Ramp up difficulty
+    
+    # Mixup for robustness
+    use_mixup: false  # Can hurt adversarial detection
+    
+    # Consistency regularization
+    use_consistency_reg: true
+    consistency_weight: 0.2
+    consistency_augmentations: 3
+  
+  # Shared settings
+  max_grad_norm: 1.0
+  scheduler_type: "cosine_with_restarts"
+  num_cycles: 2
+  early_stopping_patience: 7
+  monitor_metric: "val_f1_macro"
+  save_strategy: "best"
+  save_total_limit: 3
+  logging_steps: 50
+  eval_steps: 500
+  save_steps: 500
+
+evaluation:
+  batch_size: 32
+  metrics:
+    - "accuracy"
+    - "f1_macro"
+    - "f1_weighted"
+    - "precision_macro"
+    - "recall_macro"
+    - "confusion_matrix"
+  
+  # Per-class analysis
+  per_class_metrics: true
+  
+  # Adversarial detection metrics
+  adversarial_detection_rate: true
+  false_positive_rate: true
+  
+  # Hybrid detection analysis
+  hybrid_detection_accuracy: true
+
+inference:
+  batch_size: 64
+  
+  # Staged inference
+  use_staged_inference: true
+  binary_threshold: 0.5
+  
+  # Adversarial detection
+  adversarial_confidence_threshold: 0.7
+  
+  # Test-time adaptation (helpful for adversarial)
+  use_tta: true
+  tta_iterations: 3
+  tta_method: "consistency"
+  
+  # Ensemble
+  use_ensemble: false
+  ensemble_models: []
+
+adversarial_detection:
+  # Special techniques for adversarial code
+  
+  # Entropy analysis (obfuscated code has high entropy)
+  use_entropy_features: true
+  entropy_threshold: 7.5
+  
+  # Consistency checking
+  use_consistency_checks: true
+  consistency_features:
+    - "naming_consistency"
+    - "formatting_consistency"
+    - "comment_consistency"
+  
+  # Perplexity variance (adversarial has unusual patterns)
+  use_perplexity_variance: true
+  perplexity_var_threshold: 0.5
+  
+  # Behavioral analysis
+  use_behavioral_analysis: false  # Requires code execution
+
+hybrid_detection:
+  # Techniques for detecting human-AI collaboration
+  
+  # Section-wise analysis
+  use_section_analysis: true
+  num_sections: 8
+  
+  # Transition detection (human → AI or AI → human)
+  detect_transitions: true
+  transition_features:
+    - "perplexity_change"
+    - "style_change"
+    - "complexity_change"
+  
+  # Confidence calibration per section
+  per_section_confidence: true

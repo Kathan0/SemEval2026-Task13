@@ -1,0 +1,155 @@
+# Task A: Binary Machine-Generated Code Detection Configuration
+
+common:
+  seed: 42
+  project_name: "semeval2026-task-a"
+  experiment_name: "binary-starcoder2-enhanced"
+  device: "cuda"
+  mixed_precision: false  # MUST be false when using 8-bit quantization
+  
+paths:
+  data_dir: "data/task_a"  # HuggingFace dataset location for Colab
+  checkpoint_dir: "checkpoints/task_a"
+  log_dir: "logs/task_a"
+  cache_dir: ".cache/task_a"  # This will be symlinked to Google Drive
+
+data:
+  max_length: 256  # Reduced from 512 to save memory on activations
+  train_file: "train.parquet"  # Parquet file in data_dir
+  val_file: "validation.parquet"  # Parquet file in data_dir
+  test_file: "test.parquet"  # Parquet file in data_dir (if available)
+  max_samples: 100000  # Limit dataset size for faster testing (set to null for full dataset)
+  num_workers: 2  # Reduced for Colab - parallel data loading workers
+  prefetch_factor: 2  # Reduced for Colab - Prefetch batches per worker
+  persistent_workers: false  # Disabled for Colab to save memory
+  
+  # Feature extraction
+  extract_ast: true
+  extract_patterns: true
+  extract_perplexity: false  # Disabled for faster training
+  
+  # Number of features
+  num_ast_features: 33        # Enhanced AST features
+  num_pattern_features: 57    # LLM signature patterns
+  num_perplexity_features: 0  # Disabled - was 8
+  num_stylometric_features: 12 # Style analysis
+  # Total: 102 handcrafted features (110 with perplexity)
+  
+  # Perplexity models
+  perplexity_models:
+    - "Qwen/Qwen2.5-Coder-1.5B-Instruct"
+    - "bigcode/tiny_starcoder_py"
+  
+  # Data augmentation
+  use_augmentation: true
+  augmentation_prob: 0.3
+  random_crop: true
+  variable_rename: true
+  comment_removal: false
+
+model:
+  # Backbone
+  base_model: "bigcode/starcoder2-3b"
+  # Alternatives:
+  # base_model: "Salesforce/codet5p-770m"
+  # base_model: "deepseek-ai/deepseek-coder-1.3b-base"
+  
+  num_labels: 2  # Binary: Human (1) vs AI (0)
+  
+  # Architecture
+  hidden_size: 512  # Reduced from 768 to save memory
+  use_attention_pooling: true
+  use_multi_scale: true
+  multi_scale_layers: [12]  # Reduced from [6, 9, 12] to use only last layer
+  
+  # Feature fusion
+  feature_fusion_dim: 128  # Reduced from 256 to save memory
+  fusion_dropout: 0.3
+  
+  # Optimization
+  use_8bit_quantization: true
+  gradient_checkpointing: false  # Disabled for faster training (uses more memory)
+  freeze_backbone: true  # Freeze backbone - only train classification head
+  freeze_layers: 0  # Number of additional layers to freeze (0 = freeze all backbone)
+  
+  # Regularization
+  hidden_dropout: 0.2
+  attention_dropout: 0.2
+
+training:
+  # Batch settings - Optimized for 8GB GPU
+  batch_size: 4  # Increased from 2 for better throughput
+  gradient_accumulation_steps: 8  # Reduced from 24 to reduce overhead
+  effective_batch_size: 32  # 4 * 8 (reduced from 48 for faster training)
+  
+  # Optimization
+  num_epochs: 5  # Reduced from 15 for faster testing
+  learning_rate: 1.5e-5
+  weight_decay: 0.01
+  warmup_ratio: 0.1
+  max_grad_norm: 1.0
+  
+  # Scheduler
+  scheduler_type: "cosine"
+  num_cycles: 0.5
+  
+  # Loss configuration
+  use_focal_loss: true
+  focal_gamma: 2.0
+  focal_alpha: [0.75, 0.25]  # [Class 0 (human), Class 1 (AI)] - adjusted for stability
+  label_smoothing: 0.0  # Disabled to avoid NaN issues
+  
+  # Contrastive learning
+  use_supcon: true
+  supcon_weight: 0.3
+  supcon_temperature: 0.07
+  
+  # Early stopping
+  early_stopping_patience: 5
+  monitor_metric: "val_f1_macro"
+  
+  # Checkpointing
+  save_strategy: "best"
+  save_total_limit: 3
+  
+  # Logging
+  logging_steps: 50
+  eval_steps: 500
+  save_steps: 500
+
+evaluation:
+  batch_size: 4  # Reduced from 32 to fit in 8GB GPU memory
+  metrics:
+    - "accuracy"
+    - "f1_macro"
+    - "f1_weighted"
+    - "precision_macro"
+    - "recall_macro"
+  
+  # Confusion matrix
+  plot_confusion_matrix: true
+  
+  # Per-language evaluation
+  eval_by_language: true
+  languages:
+    - "python"
+    - "java"
+    - "cpp"
+    - "javascript"
+    - "go"
+    - "c"
+    - "csharp"
+    - "php"
+
+inference:
+  batch_size: 8  # Reduced from 64 to fit in 8GB GPU memory
+  use_tta: false  # Test-time augmentation
+  tta_iterations: 5
+  
+  # Confidence calibration
+  apply_temperature_scaling: false
+  temperature: 1.0
+  
+  # OOD detection
+  use_ood_detection: false
+  ood_threshold: 0.8
