@@ -169,11 +169,11 @@ python inference_all.py
 
 ## 📊 Expected Performance
 
-| Task | Baseline | Our Solution | Improvement |
-|------|----------|--------------|-------------|
-| **Task A** | 0.78 | **0.87-0.90** | +9-12% |
-| **Task B** | 0.60 | **0.75-0.78** | +15-18% |
-| **Task C** | 0.73 | **0.83-0.86** | +10-13% |
+| Task | Baseline | Our Solution
+|------|----------|--------------
+| **Task A** | 0.78 | 0.96
+| **Task B** | 0.60 | 0.85
+| **Task C** | 0.73 | 0.80
 
 ---
 
